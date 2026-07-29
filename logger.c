@@ -1,6 +1,9 @@
 #include "logger.h"
 
-const char* protocol_name(u8 protocol){
+
+static const char* protocol_name(u8 protocol);
+
+static const char* protocol_name(u8 protocol){
 
 	switch(protocol){
 

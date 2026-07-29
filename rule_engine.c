@@ -96,7 +96,7 @@ enum fw_result fw_add_rule(const struct fw_rule *rule){
 
 	struct fw_rule *new_rule;
 	//new_rule = kmalloc(sizeof(struct fw_rule),GFP_KERNEL);
-	new_rule = kzalloc(sizeof(new_rule),GFP_KERNEL);
+	new_rule = kzalloc(sizeof(struct fw_rule),GFP_KERNEL);
 
 	if(!new_rule)
 		return FW_ERR_NO_MEMORY;
