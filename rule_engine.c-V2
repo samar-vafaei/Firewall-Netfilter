@@ -1,56 +1,48 @@
 #include "rule_engine.h"
 
-
 static struct fw_rule_table fw_table;
 
 
 // Private helper
 typedef bool (*fw_rules_equal_fp)(const struct fw_rule* rule,
-					enum context_type type,
 					const void* context);
 
-static bool fw_rules_equal (const struct fw_rule* rule, enum context_type type, const void* context);
-static struct fw_rule* fw_find_rule(fw_rules_equal_fp fw_matcher, enum context_type type, const void* context);
+static bool fw_rules_equal (const struct fw_rule* rule, const void* context);
+static bool fw_packet_matches_rule (const struct fw_rule* rule, const void* context);
+static struct fw_rule* fw_find_rule(fw_rules_equal_fp fw_matcher, const void* context);
 static void fw_copy_rule(struct fw_rule* r1,const struct fw_rule* r2);
 
 
-static bool fw_rules_equal (const struct fw_rule* rule, enum context_type type, const void* context){
+static bool fw_rules_equal (const struct fw_rule* rule, const void* context){
 
-	switch(type){
+	const struct fw_rule* input = context;
 
-		case CTX_RULE:
-		        // cast	
-			const struct fw_rule* input = context;
-
-			return rule->protocol==input->protocol &&
-			       rule->src_ip==input->src_ip &&
-			       rule->dst_ip==input->dst_ip &&
-			       rule->src_port==input->src_port &&
-			       rule->dst_port==input->dst_port &&
-			       rule->action==input->action;
-
-		case CTX_PACKET:
-		        // cast	
-			const struct packet_info* pkt = context;
-
-			return rule->protocol==pkt->protocol &&
-			       rule->src_ip==pkt->src_ip &&
-			       rule->dst_ip==pkt->dst_ip &&
-			       rule->src_port==pkt->src_port &&
-			       rule->dst_port==pkt->dst_port;
-
-		default:
-			return false;
-	}
+	return rule->protocol==input->protocol &&
+	       rule->src_ip==input->src_ip &&
+	       rule->dst_ip==input->dst_ip &&
+	       rule->src_port==input->src_port &&
+	       rule->dst_port==input->dst_port &&
+	       rule->action==input->action;
 };
 
-static struct fw_rule* fw_find_rule(fw_rules_equal_fp fw_matcher, enum context_type type,const void* context){
+static bool fw_packet_matches_rule (const struct fw_rule* rule, const void* context){
+
+	const struct packet_info* pkt = context;
+
+	return rule->protocol==pkt->protocol &&
+	       rule->src_ip==pkt->src_ip &&
+	       rule->dst_ip==pkt->dst_ip &&
+	       rule->src_port==pkt->src_port &&
+	       rule->dst_port==pkt->dst_port;
+};
+
+static struct fw_rule* fw_find_rule(fw_rules_equal_fp fw_matcher,const void* context){
 
 	struct fw_rule *rule;
 
 	list_for_each_entry(rule,&fw_table.head,node){
 
-		if(fw_matcher(rule,type,context))
+		if(fw_matcher(rule,context))
 			return rule;	
 	}
 
@@ -91,7 +83,7 @@ enum fw_result fw_add_rule(const struct fw_rule *rule){
 		return FW_ERR_INVALID_ARGUMENT;
 
 	struct fw_rule *found;
-	found = fw_find_rule(fw_rules_equal,CTX_RULE,rule);
+	found = fw_find_rule(fw_rules_equal,rule);
 
 	if(found)
 		return FW_ERR_RULE_EXISTS;
@@ -120,7 +112,7 @@ enum fw_result fw_delete_rule(const struct fw_rule *rule){
 		return FW_ERR_INVALID_ARGUMENT;
 
 	struct fw_rule *found;
-	found = fw_find_rule(fw_rules_equal,CTX_RULE,rule);
+	found = fw_find_rule(fw_rules_equal,rule);
 
 	if(!found)
 		return FW_ERR_RULE_NOT_FOUND;
@@ -155,7 +147,7 @@ enum fw_result fw_update_rule(const struct fw_rule* rule){
 		return FW_ERR_INVALID_ARGUMENT;
 
 	struct fw_rule *found;
-	found = fw_find_rule(fw_rules_equal,CTX_RULE,rule);
+	found = fw_find_rule(fw_rules_equal,rule);
 
 	if(!found)
 		return FW_ERR_RULE_NOT_FOUND;
@@ -169,7 +161,7 @@ enum fw_action fw_match_packet(const struct packet_info* pkt){
 
 	struct fw_rule *rule;
 
-	rule = fw_find_rule(fw_rules_equal,CTX_PACKET,pkt);
+	rule = fw_find_rule(fw_packet_matches_rule,pkt);
 
 	if(!rule)
 		return FW_ACCEPT;
