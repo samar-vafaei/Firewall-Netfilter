@@ -26,6 +26,12 @@ enum fw_result {
 	FW_ERR_INTERNAL
 };
 
+enum context_type {
+
+	CTX_RULE,
+	CTX_PACKET
+};
+
 /* Rule + Rule Table */
 struct fw_rule {
 
@@ -56,17 +62,12 @@ void fw_rule_engine_exit(void);
 
 /* Rule Engine APIs called by Netlink */
 /* Rule management */
-static bool rules_equal (const struct fw_rule* r1, const struct fw_rule* r2);
-static struct fw_rule* find_rule (const struct fw_rule* rule);
-static void copy_rule(struct fw_rule* r1,const struct fw_rule* r2);
-
 enum fw_result fw_add_rule(const struct fw_rule* rule);
 enum fw_result fw_delete_rule(const struct fw_rule* rule);
 enum fw_result fw_flush_rule(void);
 enum fw_result fw_update_rule(const struct fw_rule* rule);
 
 /* Lookup the rule */
-static struct fw_rule* fw_find_matching_rule(const struct packet_info* pkt);
 enum fw_action fw_match_packet(const struct packet_info* pkt);
 
 
