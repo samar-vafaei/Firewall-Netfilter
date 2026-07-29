@@ -11,6 +11,7 @@
 
 #include "logger.h"
 #include "packet_parser.h"
+#include "rule_engine.h"
 
 
 static struct nf_hook_ops *nf_logIPpacket_ops = NULL;
@@ -26,9 +27,13 @@ static unsigned int nf_logIPpacket_handler(void *priv, struct sk_buff *skb, cons
 	if(!parse_packet(skb, &pkt))
 		return NF_DROP;
 
+	enum fw_action action;
+	action = fw_match_packet(&pkt);
+
 	logger(&pkt);
 
-	return NF_ACCEPT;
+	//return NF_ACCEPT;
+	return action;
 }
 
 
