@@ -3,6 +3,7 @@
 
 #include <linux/types.h>
 #include <linux/list.h>
+#include <linux/spinlock.h>
 
 #include "packet_parser.h"
 
@@ -52,7 +53,7 @@ struct fw_rule_table {
 
 	struct list_head head;
 
-	//spinlock_t lock;
+	spinlock_t lock;
 
 	unsigned int count;
 };

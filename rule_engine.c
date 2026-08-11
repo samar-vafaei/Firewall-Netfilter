@@ -74,6 +74,7 @@ void fw_rule_engine_init(void){
 
 	INIT_LIST_HEAD(&fw_table.head);
 	fw_table.count = 0;
+	spin_lock_init(&fw_table.lock);
 };
 
 void fw_rule_engine_exit(void){
@@ -90,12 +91,6 @@ enum fw_result fw_add_rule(const struct fw_rule *rule){
 	if(!rule)
 		return FW_ERR_INVALID_ARGUMENT;
 
-	struct fw_rule *found;
-	found = fw_find_rule(fw_rules_equal,CTX_RULE,rule);
-
-	if(found)
-		return FW_ERR_RULE_EXISTS;
-
 	struct fw_rule *new_rule;
 	//new_rule = kmalloc(sizeof(struct fw_rule),GFP_KERNEL);
 	new_rule = kzalloc(sizeof(struct fw_rule),GFP_KERNEL);
@@ -107,9 +102,21 @@ enum fw_result fw_add_rule(const struct fw_rule *rule){
 
 	INIT_LIST_HEAD(&new_rule->node);
 
-	list_add_tail(&new_rule->node,&fw_table.head);
+	struct fw_rule *found;
+	spin_lock(&fw_table.lock);
 
+	found = fw_find_rule(fw_rules_equal,CTX_RULE,rule);
+
+	if(found){
+		spin_unlock(&fw_table.lock);
+		kfree(new_rule);
+		return FW_ERR_RULE_EXISTS;
+	}
+
+	list_add_tail(&new_rule->node,&fw_table.head);
 	fw_table.count++;
+
+	spin_unlock(&fw_table.lock);
 
 	return FW_OK;
 };
@@ -120,15 +127,20 @@ enum fw_result fw_delete_rule(const struct fw_rule *rule){
 		return FW_ERR_INVALID_ARGUMENT;
 
 	struct fw_rule *found;
+	spin_lock(&fw_table.lock);
+
 	found = fw_find_rule(fw_rules_equal,CTX_RULE,rule);
 
-	if(!found)
+	if(!found){
+		spin_unlock(&fw_table.lock);
 		return FW_ERR_RULE_NOT_FOUND;
+	}
 
 	list_del(&found->node);
 	kfree(found);
-
 	fw_table.count--;
+
+	spin_unlock(&fw_table.lock);
 
 	return FW_OK;
 };
@@ -137,14 +149,17 @@ enum fw_result fw_flush_rule(void){
 
 	struct fw_rule *rule;
 	struct fw_rule *tmp;
+ 
+	spin_lock(&fw_table.lock);
 
 	list_for_each_entry_safe(rule,tmp,&fw_table.head,node){
 
 		list_del(&rule->node);
 		kfree(rule);
 	}
-
 	fw_table.count = 0;
+
+	spin_unlock(&fw_table.lock);
 
 	return FW_OK;
 };
@@ -155,24 +170,41 @@ enum fw_result fw_update_rule(const struct fw_rule* rule){
 		return FW_ERR_INVALID_ARGUMENT;
 
 	struct fw_rule *found;
+	spin_lock(&fw_table.lock);
+
 	found = fw_find_rule(fw_rules_equal,CTX_RULE,rule);
 
-	if(!found)
+	if(!found){
+		spin_unlock(&fw_table.lock);
 		return FW_ERR_RULE_NOT_FOUND;
+	}
 
 	fw_copy_rule(found,rule);
+
+	spin_unlock(&fw_table.lock);
 
 	return FW_OK;
 };
 
 enum fw_action fw_match_packet(const struct packet_info* pkt){
 
+	if(!pkt)
+		return FW_ACCEPT;
+
 	struct fw_rule *rule;
+	enum fw_action action;
+
+	spin_lock(&fw_table.lock);
 
 	rule = fw_find_rule(fw_rules_equal,CTX_PACKET,pkt);
 
 	if(!rule)
-		return FW_ACCEPT;
+		action = FW_ACCEPT;
 
-	return rule->action;
+	else 
+	       action =	rule->action;
+
+	spin_unlock(&fw_table.lock);
+
+	return action;
 };
