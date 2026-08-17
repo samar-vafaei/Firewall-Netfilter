@@ -47,14 +47,15 @@ struct fw_rule {
         enum fw_action action; 
 	
 	struct list_head node;
+
+	struct rcu_head rcu;
 };
 
 struct fw_rule_table {
 
 	struct list_head head;
 
-	//spinlock_t lock;
-	rwlock_t lock;
+	struct mutex lock;
 
 	unsigned int count;
 };

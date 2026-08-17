@@ -9,6 +9,7 @@ typedef bool (*fw_rules_equal_fp)(const struct fw_rule* rule,
 					enum context_type type,
 					const void* context);
 
+static void fw_rule_free_rcu(struct rcu_head *rcu);
 static bool fw_rules_equal (const struct fw_rule* rule, enum context_type type, const void* context);
 static struct fw_rule* fw_find_rule(fw_rules_equal_fp fw_matcher, enum context_type type, const void* context);
 static void fw_copy_rule(struct fw_rule* r1,const struct fw_rule* r2);
@@ -26,8 +27,8 @@ static bool fw_rules_equal (const struct fw_rule* rule, enum context_type type, 
 			       rule->src_ip==input->src_ip &&
 			       rule->dst_ip==input->dst_ip &&
 			       rule->src_port==input->src_port &&
-			       rule->dst_port==input->dst_port &&
-			       rule->action==input->action;
+			       rule->dst_port==input->dst_port; //&&
+			       //rule->action==input->action;
 
 		case CTX_PACKET:
 		        // cast	
@@ -48,7 +49,7 @@ static struct fw_rule* fw_find_rule(fw_rules_equal_fp fw_matcher, enum context_t
 
 	struct fw_rule *rule;
 
-	list_for_each_entry(rule,&fw_table.head,node){
+	list_for_each_entry_rcu(rule,&fw_table.head,node){
 
 		if(fw_matcher(rule,type,context))
 			return rule;	
@@ -67,15 +68,23 @@ static void fw_copy_rule(struct fw_rule* r1,const struct fw_rule* r2){
 	r1->action = r2->action;
 };
 
+static void fw_rule_free_rcu(struct rcu_head *rcu){
+
+	struct fw_rule *rule;
+
+	rule = container_of(rcu, struct fw_rule, rcu);
+
+	kfree(rule);
+};
+
 
 void fw_rule_engine_init(void){
 
 	pr_info("*** Initialize the rule engine ***\n");
 
 	INIT_LIST_HEAD(&fw_table.head);
+	mutex_init(&fw_table.lock);
 	fw_table.count = 0;
-	//spin_lock_init(&fw_table.lock);
-	rwlock_init(&fw_table.lock);
 };
 
 void fw_rule_engine_exit(void){
@@ -93,7 +102,6 @@ enum fw_result fw_add_rule(const struct fw_rule *rule){
 		return FW_ERR_INVALID_ARGUMENT;
 
 	struct fw_rule *new_rule;
-	//new_rule = kmalloc(sizeof(struct fw_rule),GFP_KERNEL);
 	new_rule = kzalloc(sizeof(struct fw_rule),GFP_KERNEL);
 
 	if(!new_rule)
@@ -104,23 +112,21 @@ enum fw_result fw_add_rule(const struct fw_rule *rule){
 	INIT_LIST_HEAD(&new_rule->node);
 
 	struct fw_rule *found;
-	//spin_lock(&fw_table.lock);
-	write_lock(&fw_table.lock);
+
+	mutex_lock(&fw_table.lock);
 
 	found = fw_find_rule(fw_rules_equal,CTX_RULE,rule);
 
 	if(found){
-		//spin_unlock(&fw_table.lock);
-		write_unlock(&fw_table.lock);
+		mutex_unlock(&fw_table.lock);
 		kfree(new_rule);
 		return FW_ERR_RULE_EXISTS;
 	}
 
-	list_add_tail(&new_rule->node,&fw_table.head);
+	list_add_tail_rcu(&new_rule->node,&fw_table.head);
 	fw_table.count++;
 
-	//spin_unlock(&fw_table.lock);
-	write_unlock(&fw_table.lock);
+	mutex_unlock(&fw_table.lock);
 
 	return FW_OK;
 };
@@ -131,23 +137,23 @@ enum fw_result fw_delete_rule(const struct fw_rule *rule){
 		return FW_ERR_INVALID_ARGUMENT;
 
 	struct fw_rule *found;
-	//spin_lock(&fw_table.lock);
-	write_lock(&fw_table.lock);
+
+	mutex_lock(&fw_table.lock);
 
 	found = fw_find_rule(fw_rules_equal,CTX_RULE,rule);
 
 	if(!found){
-		//spin_unlock(&fw_table.lock);
-		write_unlock(&fw_table.lock);
+		mutex_unlock(&fw_table.lock);
 		return FW_ERR_RULE_NOT_FOUND;
 	}
 
-	list_del(&found->node);
-	kfree(found);
+	list_del_rcu(&found->node);
+
 	fw_table.count--;
 
-	//spin_unlock(&fw_table.lock);
-	write_unlock(&fw_table.lock);
+	mutex_unlock(&fw_table.lock);
+
+	call_rcu(&found->rcu,fw_rule_free_rcu);
 
 	return FW_OK;
 };
@@ -156,19 +162,18 @@ enum fw_result fw_flush_rule(void){
 
 	struct fw_rule *rule;
 	struct fw_rule *tmp;
- 
-	//spin_lock(&fw_table.lock);
-	write_lock(&fw_table.lock);
+
+	mutex_lock(&fw_table.lock);
 
 	list_for_each_entry_safe(rule,tmp,&fw_table.head,node){
 
-		list_del(&rule->node);
-		kfree(rule);
+		list_del_rcu(&rule->node);
+		call_rcu(&rule->rcu,fw_rule_free_rcu);
 	}
+
 	fw_table.count = 0;
 
-	//spin_unlock(&fw_table.lock);
-	write_unlock(&fw_table.lock);
+	mutex_unlock(&fw_table.lock);
 
 	return FW_OK;
 };
@@ -178,22 +183,33 @@ enum fw_result fw_update_rule(const struct fw_rule* rule){
 	if(!rule)
 		return FW_ERR_INVALID_ARGUMENT;
 
+	struct fw_rule *new_rule;
+	new_rule = kzalloc(sizeof(struct fw_rule),GFP_KERNEL);
+
+	if(!new_rule)
+		return FW_ERR_NO_MEMORY;
+
+	INIT_LIST_HEAD(&new_rule->node);
+
+	fw_copy_rule(new_rule,rule);
+
 	struct fw_rule *found;
-	//spin_lock(&fw_table.lock);
-	write_lock(&fw_table.lock);
+
+	mutex_lock(&fw_table.lock);
 
 	found = fw_find_rule(fw_rules_equal,CTX_RULE,rule);
 
 	if(!found){
-		//spin_unlock(&fw_table.lock);
-		write_unlock(&fw_table.lock);
+		mutex_unlock(&fw_table.lock);
+		kfree(new_rule);
 		return FW_ERR_RULE_NOT_FOUND;
 	}
 
-	fw_copy_rule(found,rule);
+	list_replace_rcu(&found->node, &new_rule->node);
 
-	//spin_unlock(&fw_table.lock);
-	write_unlock(&fw_table.lock);
+	mutex_unlock(&fw_table.lock);
+
+	call_rcu(&found->rcu,fw_rule_free_rcu);
 
 	return FW_OK;
 };
@@ -206,8 +222,7 @@ enum fw_action fw_match_packet(const struct packet_info* pkt){
 	struct fw_rule *rule;
 	enum fw_action action;
 
-	//spin_lock(&fw_table.lock);
-	read_lock(&fw_table.lock);
+	rcu_read_lock();
 
 	rule = fw_find_rule(fw_rules_equal,CTX_PACKET,pkt);
 
@@ -217,8 +232,7 @@ enum fw_action fw_match_packet(const struct packet_info* pkt){
 	else 
 	       action =	rule->action;
 
-	//spin_unlock(&fw_table.lock);
-	read_unlock(&fw_table.lock);
+	rcu_read_unlock();
 
 	return action;
 };
