@@ -9,10 +9,14 @@ typedef bool (*fw_rules_equal_fp)(const struct fw_rule* rule,
 					enum context_type type,
 					const void* context);
 
+static void fw_rule_table_init(void);
 static void fw_rule_free_rcu(struct rcu_head *rcu);
 static bool fw_rules_equal (const struct fw_rule* rule, enum context_type type, const void* context);
 static struct fw_rule* fw_find_rule(fw_rules_equal_fp fw_matcher, enum context_type type, const void* context);
 static void fw_copy_rule(struct fw_rule* r1,const struct fw_rule* r2);
+static struct fw_hash_key* fw_hash_table_key_rule(const struct fw_rule *rule);
+static struct fw_hash_key* fw_hash_table_key_pkt(const struct packet_info *pkt);
+static unsigned int fw_hash_table_bucket_index(const struct fw_hash_key *key);
 
 
 static bool fw_rules_equal (const struct fw_rule* rule, enum context_type type, const void* context){
@@ -45,11 +49,11 @@ static bool fw_rules_equal (const struct fw_rule* rule, enum context_type type, 
 	}
 };
 
-static struct fw_rule* fw_find_rule(fw_rules_equal_fp fw_matcher, enum context_type type,const void* context){
+static struct fw_rule* fw_find_rule(fw_rules_equal_fp fw_matcher, enum context_type type, const void* context, unsigned int idx){
 
 	struct fw_rule *rule;
 
-	list_for_each_entry_rcu(rule,&fw_table.head,node){
+        hlist_for_each_entry_rcu(rule,&fw_table->buckets[idx],hnode){
 
 		if(fw_matcher(rule,type,context))
 			return rule;	
@@ -77,14 +81,64 @@ static void fw_rule_free_rcu(struct rcu_head *rcu){
 	kfree(rule);
 };
 
+static void fw_rule_table_init(void){
+
+	unsigned int i;
+
+	mutex_init(&fw_table.lock);
+
+	for(i=0; i<FW_HASH_SIZE; i++){
+
+		INIT_HLIST_HEAD(&fw_table->buckets[i]);
+	}
+
+	fw_table.count = 0;
+}
+
+static struct fw_hash_key* fw_hash_table_key_rule(const struct fw_rule *rule){
+
+	struct fw_hash_key *key;
+
+	key->protocol = rule->protocol;
+	key->src_ip = rule->src_ip;
+	key->dst_ip = rule->dst_ip;
+	key->src_port = rule->src_port;
+	key->dst_port = rule->dst_port;
+
+	return key;
+}
+
+static struct fw_hash_key* fw_hash_table_key_pkt(const struct packet_info *pkt){
+
+	struct fw_hash_key *key;
+
+	key->protocol = pkt->protocol;
+	key->src_ip = pkt->src_ip;
+	key->dst_ip = pkt->dst_ip;
+	key->src_port = pkt->src_port;
+	key->dst_port = pkt->dst_port;
+
+	return key;
+}
+
+static unsigned int fw_hash_table_bucket_index(const struct fw_hash_key *key){
+
+	u32 hash;
+	unsigned int idx;
+
+	hash = jhash(key,sizeof(*key),0);
+
+	idx = hash & (FW_HASH_SIZE - 1);
+
+	return idx;
+}
+
 
 void fw_rule_engine_init(void){
 
 	pr_info("*** Initialize the rule engine ***\n");
 
-	INIT_LIST_HEAD(&fw_table.head);
-	mutex_init(&fw_table.lock);
-	fw_table.count = 0;
+	fw_rule_table_init();
 };
 
 void fw_rule_engine_exit(void){
@@ -221,10 +275,16 @@ enum fw_action fw_match_packet(const struct packet_info* pkt){
 
 	struct fw_rule *rule;
 	enum fw_action action;
+	unsigned int idx;
+	struct fw_hash_key *key;
+
+	key = fw_hash_table_key_pkt(pkt);
+
+	idx = fw_hash_table_bucket_index(key);
 
 	rcu_read_lock();
-
-	rule = fw_find_rule(fw_rules_equal,CTX_PACKET,pkt);
+ 
+	rule = fw_find_rule(fw_rules_equal,CTX_PACKET,pkt,idx);
 
 	if(!rule)
 		action = FW_ACCEPT;
