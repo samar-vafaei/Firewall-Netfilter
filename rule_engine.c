@@ -12,7 +12,7 @@ typedef bool (*fw_rules_equal_fp)(const struct fw_rule* rule,
 static void fw_rule_table_init(void);
 static void fw_rule_free_rcu(struct rcu_head *rcu);
 static bool fw_rules_equal (const struct fw_rule* rule, enum context_type type, const void* context);
-static struct fw_rule* fw_find_rule(fw_rules_equal_fp fw_matcher, enum context_type type, const void* context);
+static struct fw_rule* fw_find_rule(fw_rules_equal_fp fw_matcher, enum context_type type, const void* context, const unsigned int idx);
 static void fw_copy_rule(struct fw_rule* r1,const struct fw_rule* r2);
 static struct fw_hash_key* fw_hash_table_key_rule(const struct fw_rule *rule);
 static struct fw_hash_key* fw_hash_table_key_pkt(const struct packet_info *pkt);
@@ -49,11 +49,11 @@ static bool fw_rules_equal (const struct fw_rule* rule, enum context_type type, 
 	}
 };
 
-static struct fw_rule* fw_find_rule(fw_rules_equal_fp fw_matcher, enum context_type type, const void* context, unsigned int idx){
+static struct fw_rule* fw_find_rule(fw_rules_equal_fp fw_matcher, enum context_type type, const void* context, const unsigned int idx){
 
 	struct fw_rule *rule;
 
-        hlist_for_each_entry_rcu(rule,&fw_table->buckets[idx],hnode){
+        hlist_for_each_entry_rcu(rule,&fw_table.buckets[idx],hnode){
 
 		if(fw_matcher(rule,type,context))
 			return rule;	
@@ -89,7 +89,7 @@ static void fw_rule_table_init(void){
 
 	for(i=0; i<FW_HASH_SIZE; i++){
 
-		INIT_HLIST_HEAD(&fw_table->buckets[i]);
+		INIT_HLIST_HEAD(&fw_table.buckets[i]);
 	}
 
 	fw_table.count = 0;
@@ -98,6 +98,10 @@ static void fw_rule_table_init(void){
 static struct fw_hash_key* fw_hash_table_key_rule(const struct fw_rule *rule){
 
 	struct fw_hash_key *key;
+	key = kzalloc(sizeof(struct fw_hash_key),GFP_KERNEL);
+
+	if(!key)
+		return NULL;
 
 	key->protocol = rule->protocol;
 	key->src_ip = rule->src_ip;
@@ -111,6 +115,10 @@ static struct fw_hash_key* fw_hash_table_key_rule(const struct fw_rule *rule){
 static struct fw_hash_key* fw_hash_table_key_pkt(const struct packet_info *pkt){
 
 	struct fw_hash_key *key;
+	key = kzalloc(sizeof(struct fw_hash_key),GFP_KERNEL);
+
+	if(!key)
+		return NULL;
 
 	key->protocol = pkt->protocol;
 	key->src_ip = pkt->src_ip;
@@ -163,13 +171,19 @@ enum fw_result fw_add_rule(const struct fw_rule *rule){
 
 	fw_copy_rule(new_rule,rule);
 
-	INIT_LIST_HEAD(&new_rule->node);
+	INIT_HLIST_NODE(&new_rule->hnode);
 
 	struct fw_rule *found;
+	unsigned int idx;
+	struct fw_hash_key *key;
+
+	key = fw_hash_table_key_rule(new_rule);
+
+	idx = fw_hash_table_bucket_index(key);
 
 	mutex_lock(&fw_table.lock);
 
-	found = fw_find_rule(fw_rules_equal,CTX_RULE,rule);
+	found = fw_find_rule(fw_rules_equal,CTX_RULE,new_rule,idx);
 
 	if(found){
 		mutex_unlock(&fw_table.lock);
@@ -177,7 +191,7 @@ enum fw_result fw_add_rule(const struct fw_rule *rule){
 		return FW_ERR_RULE_EXISTS;
 	}
 
-	list_add_tail_rcu(&new_rule->node,&fw_table.head);
+	hlist_add_head_rcu(&new_rule->hnode,&fw_table.buckets[idx]);
 	fw_table.count++;
 
 	mutex_unlock(&fw_table.lock);
@@ -191,17 +205,23 @@ enum fw_result fw_delete_rule(const struct fw_rule *rule){
 		return FW_ERR_INVALID_ARGUMENT;
 
 	struct fw_rule *found;
+	unsigned int idx;
+	struct fw_hash_key *key;
+
+	key = fw_hash_table_key_rule(rule);
+
+	idx = fw_hash_table_bucket_index(key);
 
 	mutex_lock(&fw_table.lock);
 
-	found = fw_find_rule(fw_rules_equal,CTX_RULE,rule);
+	found = fw_find_rule(fw_rules_equal,CTX_RULE,rule,idx);
 
 	if(!found){
 		mutex_unlock(&fw_table.lock);
 		return FW_ERR_RULE_NOT_FOUND;
 	}
 
-	list_del_rcu(&found->node);
+	hlist_del_rcu(&found->hnode);
 
 	fw_table.count--;
 
@@ -215,14 +235,17 @@ enum fw_result fw_delete_rule(const struct fw_rule *rule){
 enum fw_result fw_flush_rule(void){
 
 	struct fw_rule *rule;
-	struct fw_rule *tmp;
+	struct hlist_node *tmp;
 
 	mutex_lock(&fw_table.lock);
 
-	list_for_each_entry_safe(rule,tmp,&fw_table.head,node){
+	for(int idx=0;idx<FW_HASH_SIZE;idx++){
 
-		list_del_rcu(&rule->node);
-		call_rcu(&rule->rcu,fw_rule_free_rcu);
+		hlist_for_each_entry_safe(rule,tmp,&fw_table.buckets[idx],hnode){
+
+			hlist_del_rcu(&rule->hnode);
+			call_rcu(&rule->rcu,fw_rule_free_rcu);
+		}
 	}
 
 	fw_table.count = 0;
@@ -243,15 +266,21 @@ enum fw_result fw_update_rule(const struct fw_rule* rule){
 	if(!new_rule)
 		return FW_ERR_NO_MEMORY;
 
-	INIT_LIST_HEAD(&new_rule->node);
+	INIT_HLIST_NODE(&new_rule->hnode);
 
 	fw_copy_rule(new_rule,rule);
 
 	struct fw_rule *found;
+	unsigned int idx;
+	struct fw_hash_key *key;
+
+	key = fw_hash_table_key_rule(new_rule);
+
+	idx = fw_hash_table_bucket_index(key);
 
 	mutex_lock(&fw_table.lock);
 
-	found = fw_find_rule(fw_rules_equal,CTX_RULE,rule);
+	found = fw_find_rule(fw_rules_equal,CTX_RULE,new_rule,idx);
 
 	if(!found){
 		mutex_unlock(&fw_table.lock);
@@ -259,7 +288,7 @@ enum fw_result fw_update_rule(const struct fw_rule* rule){
 		return FW_ERR_RULE_NOT_FOUND;
 	}
 
-	list_replace_rcu(&found->node, &new_rule->node);
+	hlist_replace_rcu(&found->hnode, &new_rule->hnode);
 
 	mutex_unlock(&fw_table.lock);
 
