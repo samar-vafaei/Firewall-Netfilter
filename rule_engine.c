@@ -14,8 +14,8 @@ static void fw_rule_free_rcu(struct rcu_head *rcu);
 static bool fw_rules_equal (const struct fw_rule* rule, enum context_type type, const void* context);
 static struct fw_rule* fw_find_rule(fw_rules_equal_fp fw_matcher, enum context_type type, const void* context, const unsigned int idx);
 static void fw_copy_rule(struct fw_rule* r1,const struct fw_rule* r2);
-static struct fw_hash_key* fw_hash_table_key_rule(const struct fw_rule *rule);
-static struct fw_hash_key* fw_hash_table_key_pkt(const struct packet_info *pkt);
+static void fw_hash_table_key_rule(struct fw_hash_key *key, const struct fw_rule *rule);
+static void fw_hash_table_key_pkt(struct fw_hash_key *key, const struct packet_info *pkt);
 static unsigned int fw_hash_table_bucket_index(const struct fw_hash_key *key);
 
 
@@ -95,38 +95,22 @@ static void fw_rule_table_init(void){
 	fw_table.count = 0;
 }
 
-static struct fw_hash_key* fw_hash_table_key_rule(const struct fw_rule *rule){
-
-	struct fw_hash_key *key;
-	key = kzalloc(sizeof(struct fw_hash_key),GFP_KERNEL);
-
-	if(!key)
-		return NULL;
+static void fw_hash_table_key_rule(struct fw_hash_key *key, const struct fw_rule *rule){
 
 	key->protocol = rule->protocol;
 	key->src_ip = rule->src_ip;
 	key->dst_ip = rule->dst_ip;
 	key->src_port = rule->src_port;
 	key->dst_port = rule->dst_port;
-
-	return key;
 }
 
-static struct fw_hash_key* fw_hash_table_key_pkt(const struct packet_info *pkt){
-
-	struct fw_hash_key *key;
-	key = kzalloc(sizeof(struct fw_hash_key),GFP_KERNEL);
-
-	if(!key)
-		return NULL;
+static void fw_hash_table_key_pkt(struct fw_hash_key *key, const struct packet_info *pkt){
 
 	key->protocol = pkt->protocol;
 	key->src_ip = pkt->src_ip;
 	key->dst_ip = pkt->dst_ip;
 	key->src_port = pkt->src_port;
 	key->dst_port = pkt->dst_port;
-
-	return key;
 }
 
 static unsigned int fw_hash_table_bucket_index(const struct fw_hash_key *key){
@@ -163,6 +147,10 @@ enum fw_result fw_add_rule(const struct fw_rule *rule){
 	if(!rule)
 		return FW_ERR_INVALID_ARGUMENT;
 
+	struct fw_rule *found;
+	unsigned int idx;
+	struct fw_hash_key key = {};
+
 	struct fw_rule *new_rule;
 	new_rule = kzalloc(sizeof(struct fw_rule),GFP_KERNEL);
 
@@ -173,13 +161,9 @@ enum fw_result fw_add_rule(const struct fw_rule *rule){
 
 	INIT_HLIST_NODE(&new_rule->hnode);
 
-	struct fw_rule *found;
-	unsigned int idx;
-	struct fw_hash_key *key;
+	fw_hash_table_key_rule(&key,new_rule);
 
-	key = fw_hash_table_key_rule(new_rule);
-
-	idx = fw_hash_table_bucket_index(key);
+	idx = fw_hash_table_bucket_index(&key);
 
 	mutex_lock(&fw_table.lock);
 
@@ -206,11 +190,11 @@ enum fw_result fw_delete_rule(const struct fw_rule *rule){
 
 	struct fw_rule *found;
 	unsigned int idx;
-	struct fw_hash_key *key;
+	struct fw_hash_key key = {};
 
-	key = fw_hash_table_key_rule(rule);
+	fw_hash_table_key_rule(&key,rule);
 
-	idx = fw_hash_table_bucket_index(key);
+	idx = fw_hash_table_bucket_index(&key);
 
 	mutex_lock(&fw_table.lock);
 
@@ -260,6 +244,10 @@ enum fw_result fw_update_rule(const struct fw_rule* rule){
 	if(!rule)
 		return FW_ERR_INVALID_ARGUMENT;
 
+	struct fw_rule *found;
+	unsigned int idx;
+	struct fw_hash_key key = {};
+
 	struct fw_rule *new_rule;
 	new_rule = kzalloc(sizeof(struct fw_rule),GFP_KERNEL);
 
@@ -270,13 +258,9 @@ enum fw_result fw_update_rule(const struct fw_rule* rule){
 
 	fw_copy_rule(new_rule,rule);
 
-	struct fw_rule *found;
-	unsigned int idx;
-	struct fw_hash_key *key;
+	fw_hash_table_key_rule(&key,new_rule);
 
-	key = fw_hash_table_key_rule(new_rule);
-
-	idx = fw_hash_table_bucket_index(key);
+	idx = fw_hash_table_bucket_index(&key);
 
 	mutex_lock(&fw_table.lock);
 
@@ -305,11 +289,11 @@ enum fw_action fw_match_packet(const struct packet_info* pkt){
 	struct fw_rule *rule;
 	enum fw_action action;
 	unsigned int idx;
-	struct fw_hash_key *key;
+	struct fw_hash_key key = {};
 
-	key = fw_hash_table_key_pkt(pkt);
+	fw_hash_table_key_pkt(&key,pkt);
 
-	idx = fw_hash_table_bucket_index(key);
+	idx = fw_hash_table_bucket_index(&key);
 
 	rcu_read_lock();
  
