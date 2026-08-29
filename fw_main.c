@@ -145,8 +145,6 @@ static unsigned int nf_logIPpacket_handler(void *priv, struct sk_buff *skb, cons
 
 static int __init nf_logIPpacket_init(void){
 
-	int ret;
-
 	nf_logIPpacket_ops = (struct nf_hook_ops*)kcalloc(1,sizeof(struct nf_hook_ops),GFP_KERNEL);
 	
 	if(nf_logIPpacket_ops != NULL){
@@ -159,9 +157,7 @@ static int __init nf_logIPpacket_init(void){
 		nf_register_net_hook(&init_net, nf_logIPpacket_ops);
 	}
 
-	ret = genl_register_family(&fw_genl_family);
-	if(ret)
-		return ret;
+	genl_register_family(&fw_genl_family);
 
 	pr_info("Firewall Generic Netlink family registered.\n");
 
