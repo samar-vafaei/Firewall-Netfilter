@@ -105,12 +105,72 @@ static int fw_add_rule_handler(struct sk_buff *skb, struct genl_info *info){
 	return fw_add_rule(&rule);
 };
 
+static int fw_delete_rule_handler(struct sk_buff *skb, struct genl_info *info){
+
+	struct fw_rule rule = {};
+
+	if(info->attrs[FW_ATTR_SRC_IP])
+		rule.src_ip = nla_get_u32(info->attrs[FW_ATTR_SRC_IP]);
+
+	if(info->attrs[FW_ATTR_DST_IP])
+		rule.dst_ip = nla_get_u32(info->attrs[FW_ATTR_DST_IP]);
+
+	if(info->attrs[FW_ATTR_SRC_PORT])
+		rule.src_port = nla_get_u16(info->attrs[FW_ATTR_SRC_PORT]);
+
+	if(info->attrs[FW_ATTR_DST_PORT])
+		rule.dst_port = nla_get_u16(info->attrs[FW_ATTR_DST_PORT]);
+
+	if(info->attrs[FW_ATTR_PROTOCOL])
+		rule.protocol = nla_get_u8(info->attrs[FW_ATTR_PROTOCOL]);
+
+	if(info->attrs[FW_ATTR_ACTION])
+		rule.action = nla_get_u8(info->attrs[FW_ATTR_ACTION]);
+
+	return fw_delete_rule(&rule);
+};
+
+static int fw_update_rule_handler(struct sk_buff *skb, struct genl_info *info){
+
+	struct fw_rule rule = {};
+
+	if(info->attrs[FW_ATTR_SRC_IP])
+		rule.src_ip = nla_get_u32(info->attrs[FW_ATTR_SRC_IP]);
+
+	if(info->attrs[FW_ATTR_DST_IP])
+		rule.dst_ip = nla_get_u32(info->attrs[FW_ATTR_DST_IP]);
+
+	if(info->attrs[FW_ATTR_SRC_PORT])
+		rule.src_port = nla_get_u16(info->attrs[FW_ATTR_SRC_PORT]);
+
+	if(info->attrs[FW_ATTR_DST_PORT])
+		rule.dst_port = nla_get_u16(info->attrs[FW_ATTR_DST_PORT]);
+
+	if(info->attrs[FW_ATTR_PROTOCOL])
+		rule.protocol = nla_get_u8(info->attrs[FW_ATTR_PROTOCOL]);
+
+	if(info->attrs[FW_ATTR_ACTION])
+		rule.action = nla_get_u8(info->attrs[FW_ATTR_ACTION]);
+
+	return fw_update_rule(&rule);
+};
+
 static const struct genl_ops fw_genl_ops[] = {
 	{
 		.cmd = FW_CMD_ADD_RULE,
 		.doit = fw_add_rule_handler,
 		.policy = fw_policy,
 	},
+	{
+		.cmd = FW_CMD_DELETE_RULE,
+		.doit = fw_delete_rule_handler,
+		.policy = fw_policy,
+	},
+	{
+		.cmd = FW_CMD_UPDATE_RULE,
+		.doit = fw_update_rule_handler,
+		.policy = fw_policy,
+	}
 };
 
 static struct genl_family fw_genl_family = {
