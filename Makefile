@@ -3,7 +3,8 @@ firewall-objs :=  \
 	fw_main.o \
 	logger.o \
 	packet_parser.o \
-	rule_engine.o
+	rule_engine.o \
+	netlink.o
 
 PWD := $(CURDIR)
 
