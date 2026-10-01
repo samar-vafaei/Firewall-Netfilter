@@ -8,7 +8,11 @@ make clean
 
 
 modinfo firewall.ko
+
 lsmod | grep firewall
+
 insmod firewall.ko
+
 rmmod firewall
+
 
