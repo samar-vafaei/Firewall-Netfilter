@@ -13,37 +13,8 @@
 #include "logger.h"
 #include "packet_parser.h"
 #include "rule_engine.h"
+#include "../include/fw_uapi.h"
 
-
-enum fw_cmd {
-
-	FW_CMD_UNSPEC,
-
-	FW_CMD_ADD_RULE,
-	FW_CMD_DELETE_RULE,
-	FW_CMD_UPDATE_RULE,
-	FW_CMD_LIST_RULE,
-
-	__FW_CMD_MAX,
-};
-
-#define FW_CMD_MAX (__FW_CMD_MAX - 1)
-
-enum fw_attr {
-
-	FW_ATTR_UNSPEC,
-
-	FW_ATTR_SRC_IP,
-	FW_ATTR_DST_IP,
-	FW_ATTR_SRC_PORT,
-	FW_ATTR_DST_PORT,
-	FW_ATTR_PROTOCOL,
-	FW_ATTR_ACTION,
-
-	__FW_ATTR_MAX,
-};
-
-#define FW_ATTR_MAX (__FW_ATTR_MAX - 1)
 
 static struct nf_hook_ops *nf_logIPpacket_ops = NULL;
 
