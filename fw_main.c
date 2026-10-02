@@ -168,7 +168,7 @@ static unsigned int nf_logIPpacket_handler(void *priv, struct sk_buff *skb, cons
 	action = fw_match_packet(&pkt);
 
 	logger(&pkt);
-
+	
 	//return NF_ACCEPT;
 	return action;
 }
@@ -186,6 +186,8 @@ static int __init nf_logIPpacket_init(void){
 		nf_logIPpacket_ops->priority = NF_IP_PRI_FIRST;
 
 		nf_register_net_hook(&init_net, nf_logIPpacket_ops);
+
+		pr_info("Firewall Netfilter hook registered.\n");
 	}
 
 	genl_register_family(&fw_genl_family);

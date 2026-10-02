@@ -17,8 +17,8 @@
 /* NF_ACCEPT NF_DROP */
 enum fw_action {
 	
-	FW_ACCEPT,
 	FW_DROP,
+	FW_ACCEPT,
 	FW_FORWARD
 };
 

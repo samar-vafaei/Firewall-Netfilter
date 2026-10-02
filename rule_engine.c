@@ -301,7 +301,6 @@ enum fw_action fw_match_packet(const struct packet_info* pkt){
 
 	if(!rule)
 		action = FW_ACCEPT;
-
 	else 
 	       action =	rule->action;
 
